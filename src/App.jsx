@@ -3,9 +3,10 @@ import { Loader, AlertCircle, Home } from 'lucide-react';
 import useProjectStore from './stores/projectStore';
 import ProjectList from './components/ProjectList';
 import ProjectForm from './components/ProjectForm';
+import HazardIdentification from './components/HazardIdentification';
 
 // Lazy load components that will be created later
-const HazardIdentification = () => <div>Hazard Identification (Coming Soon)</div>;
+// created 15dec24 const HazardIdentification = () => <div>Hazard Identification (Coming Soon)</div>;
 const RiskAssessment = () => <div>Risk Assessment (Coming Soon)</div>;
 const RiskControls = () => <div>Risk Controls (Coming Soon)</div>;
 
