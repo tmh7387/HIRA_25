@@ -19,3 +19,8 @@ export default function RiskMatrixSelector() {
     </div>
   );
 }
+
+RiskMatrixSelector.propTypes = {
+  matrixType: PropTypes.string.isRequired,
+  setMatrixType: PropTypes.func.isRequired
+};

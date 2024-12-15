@@ -4,10 +4,8 @@ import useProjectStore from './stores/projectStore';
 import ProjectList from './components/ProjectList';
 import ProjectForm from './components/ProjectForm';
 import HazardIdentification from './components/HazardIdentification';
-
-// Lazy load components that will be created later
-const RiskAssessment = () => <div>Risk Assessment (Coming Soon)</div>;
-const RiskControls = () => <div>Risk Controls (Coming Soon)</div>;
+import RiskAssessment from './components/RiskAssessment';
+import RiskControls from './components/RiskControls';
 
 // Error Alert Component
 function ErrorAlert({ message, onDismiss }) {
@@ -91,7 +89,7 @@ function App() {
 
   const handleSubmit = (data) => {
     console.log('Form submitted:', data);
-    setCurrentStep(3); // Proceed to Risk Assessment
+    setCurrentStep(4); // Proceed to Risk Controls
   };
 
   const getViewTitle = () => {
@@ -116,7 +114,7 @@ function App() {
       case 2:
         return <HazardIdentification onSubmit={handleSubmit} />;
       case 3:
-        return <RiskAssessment />;
+        return <RiskAssessment onSubmit={handleSubmit} />; // Pass handleSubmit to RiskAssessment
       case 4:
         return <RiskControls />;
       default:
