@@ -6,7 +6,6 @@ import ProjectForm from './components/ProjectForm';
 import HazardIdentification from './components/HazardIdentification';
 
 // Lazy load components that will be created later
-// created 15dec24 const HazardIdentification = () => <div>Hazard Identification (Coming Soon)</div>;
 const RiskAssessment = () => <div>Risk Assessment (Coming Soon)</div>;
 const RiskControls = () => <div>Risk Controls (Coming Soon)</div>;
 
@@ -90,7 +89,11 @@ function App() {
     loadProjects();
   }, [loadProjects]);
 
-  // Get the title for the current view
+  const handleSubmit = (data) => {
+    console.log('Form submitted:', data);
+    setCurrentStep(3); // Proceed to Risk Assessment
+  };
+
   const getViewTitle = () => {
     switch (currentStep) {
       case 1:
@@ -106,13 +109,12 @@ function App() {
     }
   };
 
-  // Render current step content
   const renderStepContent = () => {
     switch (currentStep) {
       case 1:
         return <ProjectForm />;
       case 2:
-        return <HazardIdentification />;
+        return <HazardIdentification onSubmit={handleSubmit} />;
       case 3:
         return <RiskAssessment />;
       case 4:
