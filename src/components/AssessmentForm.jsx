@@ -5,16 +5,30 @@ import ICAORiskMatrix from './ICAORiskMatrix';
 import IntegratedRiskMatrix from './IntegratedRiskMatrix';
 import { calculateICAORiskTolerability } from '../utils/riskCalculations';
 
-export default function AssessmentForm({ groupedAssessments, setValue, onSubmit }) {
+export default function AssessmentForm({ groupedAssessments, setValue, onSubmit, isSubmitting }) {
   const { matrixType } = useRiskMatrixStore();
 
-  const handleMatrixChange = (assessmentId, values) => {
-    // Find the index of the assessment in the flat array
-    const assessmentIndex = Object.values(groupedAssessments)
-      .flatMap(group => group.assessments)
-      .findIndex(assessment => assessment.uniqueId === assessmentId);
+  // Flatten assessments list for indexing
+  const allAssessments = Object.values(groupedAssessments).flatMap(group => group.assessments);
 
-    if (assessmentIndex === -1) return;
+  const handleMatrixChange = (assessmentId, values) => {
+    const assessmentIndex = allAssessments.findIndex(
+      (a) => a.consequence_id === assessmentId
+    );
+
+    if (assessmentIndex === -1) {
+      console.error('Assessment not found for consequence_id:', assessmentId);
+      return;
+    }
+
+    console.log(
+      'Updating assessment:',
+      assessmentId,
+      'at index:',
+      assessmentIndex,
+      'with values:',
+      values
+    );
 
     if (matrixType === 'ICAO') {
       setValue(`assessments.${assessmentIndex}.probability`, values.probability);
@@ -31,18 +45,18 @@ export default function AssessmentForm({ groupedAssessments, setValue, onSubmit 
 
   return (
     <form onSubmit={onSubmit} className="space-y-6">
-      {Object.entries(groupedAssessments).map(([eventId, { event, assessments }]) => (
-        <div key={eventId} className="bg-white rounded-lg shadow p-6">
+      {Object.entries(groupedAssessments).map(([event_id, { event, assessments }], groupIndex) => (
+        <div key={`group-${event_id}-${groupIndex}`} className="bg-white rounded-lg shadow p-6">
           <h3 className="text-xl font-semibold text-gray-800 mb-4">{event}</h3>
-          
+
           <div className="space-y-6">
-            {assessments.map((assessment) => (
-              <div key={assessment.uniqueId} className="bg-gray-50 rounded-lg p-4">
+            {assessments.map((assessment, index) => (
+              <div key={`assessment-${assessment.consequence_id}-${index}`} className="bg-gray-50 rounded-lg p-4">
                 <div className="mb-4">
                   <h4 className="font-medium text-gray-700">Hazard</h4>
                   <p className="text-gray-600">{assessment.hazard}</p>
                 </div>
-                
+
                 <div className="mb-4">
                   <h4 className="font-medium text-gray-700">Consequence</h4>
                   <p className="text-gray-600">{assessment.consequence}</p>
@@ -50,24 +64,27 @@ export default function AssessmentForm({ groupedAssessments, setValue, onSubmit 
 
                 <div className="mb-4">
                   <h4 className="font-medium text-gray-700">Current Controls</h4>
-                  <p className="text-gray-600">{assessment.currentControls}</p>
+                  <p className="text-gray-600">{assessment.current_controls}</p>
                 </div>
 
-                {matrixType === 'ICAO' ? (
-                  <ICAORiskMatrix
-                    probability={assessment.probability}
-                    severity={assessment.severity}
-                    onChange={(values) => handleMatrixChange(assessment.uniqueId, values)}
-                    showTolerability={true}
-                  />
-                ) : (
-                  <IntegratedRiskMatrix
-                    likelihood={assessment.likelihood}
-                    impact={assessment.impact}
-                    onChange={(values) => handleMatrixChange(assessment.uniqueId, values)}
-                    showRiskLevel={true}
-                  />
-                )}
+                <div>
+                  {matrixType === 'ICAO' ? (
+                    <ICAORiskMatrix
+                      probability={assessment.probability}
+                      severity={assessment.severity}
+                      onChange={(values) => handleMatrixChange(assessment.consequence_id, values)}
+                      showTolerability={true}
+                      tolerability={assessment.tolerability}
+                    />
+                  ) : (
+                    <IntegratedRiskMatrix
+                      likelihood={assessment.likelihood}
+                      impact={assessment.impact}
+                      onChange={(values) => handleMatrixChange(assessment.consequence_id, values)}
+                      showRiskLevel={true}
+                    />
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -77,9 +94,12 @@ export default function AssessmentForm({ groupedAssessments, setValue, onSubmit 
       <div className="flex justify-end">
         <button
           type="submit"
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          disabled={isSubmitting}
+          className={`px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors duration-200 ${
+            isSubmitting ? 'opacity-50 cursor-not-allowed' : ''
+          }`}
         >
-          Next Step
+          {isSubmitting ? 'Saving...' : 'Next Step'}
         </button>
       </div>
     </form>
@@ -89,5 +109,6 @@ export default function AssessmentForm({ groupedAssessments, setValue, onSubmit 
 AssessmentForm.propTypes = {
   groupedAssessments: PropTypes.object.isRequired,
   setValue: PropTypes.func.isRequired,
-  onSubmit: PropTypes.func.isRequired
+  onSubmit: PropTypes.func.isRequired,
+  isSubmitting: PropTypes.bool
 };

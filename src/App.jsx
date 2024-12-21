@@ -1,27 +1,28 @@
 import { useEffect } from 'react';
-import { Loader, AlertCircle, Home } from 'lucide-react';
+import { Loader, AlertCircle, Home, ArrowRight } from 'lucide-react';
 import useProjectStore from './stores/projectStore';
 import ProjectList from './components/ProjectList';
 import ProjectForm from './components/ProjectForm';
 import HazardIdentification from './components/HazardIdentification';
 import RiskAssessment from './components/RiskAssessment';
 import RiskControls from './components/RiskControls';
+import { controlService } from './services/controlService';
 
 // Error Alert Component
 function ErrorAlert({ message, onDismiss }) {
   if (!message) return null;
 
   return (
-    <div className="p-4 bg-accent-lighter border border-accent-main rounded-lg">
+    <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
       <div className="flex items-center justify-between">
         <div className="flex items-center">
-          <AlertCircle className="h-5 w-5 text-accent-main mr-2" />
-          <span className="text-accent-dark font-medium">{message}</span>
+          <AlertCircle className="h-5 w-5 text-red-400 mr-2" />
+          <span className="text-red-700 font-medium">{message}</span>
         </div>
         {onDismiss && (
           <button
             onClick={onDismiss}
-            className="text-accent-main hover:text-accent-dark transition-colors duration-200"
+            className="text-red-400 hover:text-red-500 transition-colors duration-200"
           >
             ×
           </button>
@@ -42,7 +43,7 @@ function LoadingSpinner() {
 }
 
 // Step Navigation Component
-function StepNavigation({ currentStep, onStepClick }) {
+function StepNavigation({ currentStep, onStepClick, isLoading, getStepData }) {
   const steps = [
     { step: 1, name: 'Project Details' },
     { step: 2, name: 'Hazard Identification' },
@@ -50,24 +51,40 @@ function StepNavigation({ currentStep, onStepClick }) {
     { step: 4, name: 'Risk Controls' }
   ];
 
+  // Check if a step is accessible
+  const canAccessStep = (step) => {
+    if (step <= 1) return true;
+    return getStepData(step - 1) !== null;
+  };
+
   return (
-    <nav className="flex space-x-4">
-      {steps.map(({ step, name }) => (
-        <button
-          key={step}
-          onClick={() => onStepClick(step)}
-          className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors duration-200 ${
-            currentStep === step
-              ? 'bg-primary-light text-primary-main'
-              : step <= currentStep
-              ? 'text-neutral-dark hover:text-primary-main hover:bg-primary-light'
-              : 'text-neutral-main cursor-not-allowed'
-          }`}
-          disabled={step > currentStep}
-        >
-          {name}
-        </button>
-      ))}
+    <nav className="flex items-center space-x-2">
+      {steps.map(({ step, name }) => {
+        const isAccessible = canAccessStep(step);
+        const isCurrent = currentStep === step;
+        const buttonClasses = `
+          px-3 py-2 text-sm font-medium rounded-lg transition-colors duration-200
+          ${isCurrent ? 'bg-primary-light text-primary-main' : 
+            isAccessible ? 'text-neutral-dark hover:text-primary-main hover:bg-primary-light' : 
+            'text-neutral-main cursor-not-allowed opacity-50'}
+        `;
+
+        return (
+          <div key={step} className="flex items-center">
+            <button
+              onClick={() => isAccessible && onStepClick(step)}
+              disabled={isLoading || !isAccessible}
+              className={buttonClasses}
+              title={!isAccessible ? 'Complete previous step first' : name}
+            >
+              {name}
+            </button>
+            {step < steps.length && (
+              <ArrowRight className="h-4 w-4 mx-2 text-neutral-main" />
+            )}
+          </div>
+        );
+      })}
     </nav>
   );
 }
@@ -78,19 +95,19 @@ function App() {
     error,
     currentStep,
     currentProject,
+    projectDetails,
+    riskControlsData,
     setCurrentStep,
     clearError,
-    loadProjects
+    loadProjects,
+    resetState,
+    getStepData,
+    setStepData
   } = useProjectStore();
 
   useEffect(() => {
     loadProjects();
   }, [loadProjects]);
-
-  const handleSubmit = (data) => {
-    console.log('Form submitted:', data);
-    setCurrentStep(4); // Proceed to Risk Controls
-  };
 
   const getViewTitle = () => {
     switch (currentStep) {
@@ -107,16 +124,55 @@ function App() {
     }
   };
 
+  const handleDashboardClick = () => {
+    if (isLoading) return;
+    resetState();
+    setCurrentStep(0);
+  };
+
+  const handleRiskControlSubmit = async (data) => {
+    try {
+      // Save each control
+      const savedControls = await Promise.all(
+        data.controls.map(async control => {
+          const existingControl = riskControlsData?.controls?.find(
+            c => c.assessment_id === control.assessment_id
+          );
+          
+          if (existingControl) {
+            return controlService.updateRiskControl(existingControl.id, control);
+          } else {
+            return controlService.createRiskControl(control.assessment_id, control);
+          }
+        })
+      );
+
+      // Update store with saved controls
+      await setStepData(4, { controls: savedControls });
+    } catch (error) {
+      console.error('Error saving controls:', error);
+    }
+  };
+
   const renderStepContent = () => {
+    if (isLoading) {
+      return <LoadingSpinner />;
+    }
+
     switch (currentStep) {
       case 1:
         return <ProjectForm />;
       case 2:
-        return <HazardIdentification onSubmit={handleSubmit} />;
+        return <HazardIdentification />;
       case 3:
-        return <RiskAssessment onSubmit={handleSubmit} />; // Pass handleSubmit to RiskAssessment
+        return <RiskAssessment />;
       case 4:
-        return <RiskControls />;
+        return (
+          <RiskControls 
+            onSubmit={handleRiskControlSubmit}
+            initialData={riskControlsData?.controls}
+          />
+        );
       default:
         return <ProjectList />;
     }
@@ -135,11 +191,17 @@ function App() {
               <p className="mt-1 text-neutral-main">
                 {getViewTitle()}
               </p>
+              {currentProject && currentStep > 0 && (
+                <p className="mt-1 text-sm text-neutral-dark">
+                  Project: {projectDetails?.title || currentProject.title}
+                </p>
+              )}
             </div>
             {currentStep > 0 && (
               <button
-                onClick={() => setCurrentStep(0)}
-                className="inline-flex items-center px-4 py-2 bg-secondary-main text-white rounded-lg font-medium shadow-sm hover:bg-secondary-hover hover:shadow-md transition-all duration-200"
+                onClick={handleDashboardClick}
+                disabled={isLoading}
+                className="inline-flex items-center px-4 py-2 bg-secondary-main text-white rounded-lg font-medium shadow-sm hover:bg-secondary-hover hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Home className="w-4 h-4 mr-2" />
                 Dashboard
@@ -150,6 +212,8 @@ function App() {
             <StepNavigation 
               currentStep={currentStep}
               onStepClick={setCurrentStep}
+              isLoading={isLoading}
+              getStepData={getStepData}
             />
           )}
         </div>
@@ -167,11 +231,7 @@ function App() {
         )}
 
         <div className="bg-white shadow-lg rounded-xl p-6 sm:p-8">
-          {isLoading ? (
-            <LoadingSpinner />
-          ) : (
-            renderStepContent()
-          )}
+          {renderStepContent()}
         </div>
       </main>
     </div>

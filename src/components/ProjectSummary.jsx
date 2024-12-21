@@ -60,7 +60,7 @@ export default function ProjectSummary({ project }) {
             <h3 className="text-lg font-semibold mb-4">Risk Assessments</h3>
             <div className="space-y-4">
               {project.assessments?.map((assessment) => (
-                <div key={assessment.uniqueId} className="border rounded-lg p-4">
+                <div key={assessment.assessment_id} className="border rounded-lg p-4">
                   <div className="grid grid-cols-2 gap-4 mb-4">
                     <div>
                       <p className="text-sm text-gray-600">Event</p>
@@ -118,6 +118,18 @@ ProjectSummary.propTypes = {
       name: PropTypes.string.isRequired,
       designation: PropTypes.string.isRequired
     }).isRequired,
-    assessments: PropTypes.array.isRequired
+    assessments: PropTypes.arrayOf(PropTypes.shape({
+      assessment_id: PropTypes.string.isRequired,
+      event: PropTypes.string.isRequired,
+      hazard: PropTypes.string.isRequired,
+      consequence: PropTypes.string.isRequired,
+      current_controls: PropTypes.string,
+      additional_mitigation: PropTypes.string,
+      probability: PropTypes.number,
+      severity: PropTypes.string,
+      likelihood: PropTypes.number,
+      impact: PropTypes.number,
+      tolerability: PropTypes.string
+    })).isRequired
   }).isRequired
 };

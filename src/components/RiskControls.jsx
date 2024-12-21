@@ -1,22 +1,19 @@
-import React from 'react';
-import PropTypes from 'prop-types';
+import React, { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { useRiskMatrixStore } from '../stores/riskMatrixStore';
 import { calculateRiskRating } from '../utils/riskCalculations';
-import useFormStore from '../stores/formStore';
+import useProjectStore from '../stores/projectStore';
+import { controlService } from '../services/controlService';
 
-export default function RiskControls({ assessments, onSubmit, initialData }) {
+export default function RiskControls() {
+  const { currentProject, riskAssessmentData, setStepData } = useProjectStore();
   const { matrixType } = useRiskMatrixStore();
-  const { currentProject, getCurrentProjectId } = useFormStore();
   
-  // Use stored assessments if available, otherwise use props
-  const currentAssessments = currentProject?.assessments || assessments;
-  
-  // Ensure we have an array to work with
-  const assessmentsArray = Array.isArray(currentAssessments) ? currentAssessments : [];
+  // Get assessments from risk assessment data
+  const assessments = riskAssessmentData?.assessments || [];
   
   // Filter assessments based on risk level
-  const filteredAssessments = assessmentsArray.filter(assessment => {
+  const filteredAssessments = assessments.filter(assessment => {
     if (matrixType === 'ICAO') {
       return assessment.tolerability !== 'ACCEPTABLE';
     } else {
@@ -25,56 +22,72 @@ export default function RiskControls({ assessments, onSubmit, initialData }) {
     }
   });
 
-  // If we have initialData, match it with filtered assessments
-  const defaultControls = initialData 
-    ? filteredAssessments.map(assessment => {
-        const existingControl = initialData.find(control => 
-          control.consequence === assessment.consequence
-        );
-        return {
-          consequence: assessment.consequence,
-          consequenceId: assessment.consequenceId,
-          additionalMitigation: existingControl?.additionalMitigation || '',
-          riskOwner: existingControl?.riskOwner || '',
-          targetDate: existingControl?.targetDate || '',
-          dateImplemented: existingControl?.dateImplemented || ''
-        };
-      })
-    : filteredAssessments.map(assessment => ({
-        consequence: assessment.consequence,
-        consequenceId: assessment.consequenceId,
-        additionalMitigation: '',
-        riskOwner: '',
-        targetDate: '',
-        dateImplemented: ''
-      }));
-
-  const { register, handleSubmit } = useForm({
+  const { register, handleSubmit, setValue } = useForm({
     defaultValues: {
-      controls: defaultControls
+      controls: filteredAssessments.map(assessment => ({
+        assessment_id: assessment.id,
+        additional_mitigation: '',
+        risk_owner: '',
+        target_date: '',
+        date_implemented: ''
+      }))
     }
   });
 
-  const onFormSubmit = (data) => {
-    // Get the current project ID
-    const projectId = getCurrentProjectId();
-    if (!projectId) {
-      console.error('No project ID found');
-      return;
-    }
+  // Load existing controls when component mounts
+  useEffect(() => {
+    const loadExistingControls = async () => {
+      if (!currentProject?.id) return;
 
-    // Ensure we're sending the exact structure expected by controlService
-    onSubmit({
-      projectId,
-      controls: data.controls.map(control => ({
-        consequence: control.consequence,
-        consequenceId: control.consequenceId,
-        additionalMitigation: control.additionalMitigation || '',
-        riskOwner: control.riskOwner || '',
-        targetDate: control.targetDate || null,
-        dateImplemented: control.dateImplemented || null
-      }))
-    });
+      try {
+        // Load controls for each assessment
+        const controlPromises = filteredAssessments.map(assessment =>
+          controlService.getRiskControlByAssessmentId(assessment.id)
+        );
+        
+        const controls = await Promise.all(controlPromises);
+        
+        // Set form values for existing controls
+        controls.forEach((control, index) => {
+          if (control) {
+            setValue(`controls.${index}.additional_mitigation`, control.additional_mitigation);
+            setValue(`controls.${index}.risk_owner`, control.risk_owner);
+            setValue(`controls.${index}.target_date`, control.target_date);
+            setValue(`controls.${index}.date_implemented`, control.date_implemented);
+          }
+        });
+      } catch (error) {
+        console.error('Error loading existing controls:', error);
+      }
+    };
+
+    if (filteredAssessments.length > 0) {
+      loadExistingControls();
+    }
+  }, [currentProject?.id, filteredAssessments, setValue]);
+
+  const handleFormSubmit = async (data) => {
+    try {
+      console.log('Submitting form data:', data);
+      
+      // Save each control
+      const savedControls = await Promise.all(
+        data.controls.map(async control => {
+          const existingControl = await controlService.getRiskControlByAssessmentId(control.assessment_id);
+          
+          if (existingControl) {
+            return controlService.updateRiskControl(existingControl.id, control);
+          } else {
+            return controlService.createRiskControl(control.assessment_id, control);
+          }
+        })
+      );
+
+      // Update store
+      await setStepData(4, { controls: savedControls });
+    } catch (error) {
+      console.error('Error saving risk controls:', error);
+    }
   };
 
   const getRiskIndicator = (assessment) => {
@@ -87,10 +100,8 @@ export default function RiskControls({ assessments, onSubmit, initialData }) {
 
   const getRiskIndicatorStyle = (indicator) => {
     const styles = {
-      // ICAO styles
       'INTOLERABLE': 'bg-red-200 text-red-800',
       'TOLERABLE': 'bg-yellow-100 text-yellow-800',
-      // Integrated matrix styles
       'High': 'bg-red-200 text-red-800',
       'Moderate': 'bg-orange-200 text-orange-800',
       'Medium': 'bg-yellow-100 text-yellow-800'
@@ -132,7 +143,7 @@ export default function RiskControls({ assessments, onSubmit, initialData }) {
             ' (Excluding Low risks)'}
         </p>
 
-        <form onSubmit={handleSubmit(onFormSubmit)}>
+        <form onSubmit={handleSubmit(handleFormSubmit)}>
           <div className="space-y-8">
             {Object.entries(groupedAssessments).map(([event, eventAssessments]) => (
               <div key={event} className="bg-gray-50 rounded-lg p-6">
@@ -141,7 +152,7 @@ export default function RiskControls({ assessments, onSubmit, initialData }) {
                   {eventAssessments.map((assessment, index) => {
                     const riskIndicator = getRiskIndicator(assessment);
                     return (
-                      <div key={assessment.uniqueId} className="bg-white rounded-lg p-4 shadow-sm">
+                      <div key={assessment.assessment_id} className="bg-white rounded-lg p-4 shadow-sm">
                         <div className="space-y-4">
                           <div>
                             <h4 className="font-medium text-gray-700">Hazard</h4>
@@ -153,19 +164,14 @@ export default function RiskControls({ assessments, onSubmit, initialData }) {
                             <p className="text-gray-600">{assessment.consequence}</p>
                             <input 
                               type="hidden" 
-                              {...register(`controls.${index}.consequence`)} 
-                              defaultValue={assessment.consequence}
-                            />
-                            <input 
-                              type="hidden" 
-                              {...register(`controls.${index}.consequenceId`)} 
-                              defaultValue={assessment.consequenceId}
+                              {...register(`controls.${index}.assessment_id`)} 
+                              defaultValue={assessment.assessment_id}
                             />
                           </div>
 
                           <div>
                             <h4 className="font-medium text-gray-700">Current Controls</h4>
-                            <p className="text-gray-600">{assessment.currentControls}</p>
+                            <p className="text-gray-600">{assessment.current_controls}</p>
                           </div>
 
                           <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getRiskIndicatorStyle(riskIndicator)}`}>
@@ -176,7 +182,7 @@ export default function RiskControls({ assessments, onSubmit, initialData }) {
                             <div>
                               <label className="block text-sm font-medium text-gray-700">Additional Mitigation Measures</label>
                               <textarea
-                                {...register(`controls.${index}.additionalMitigation`)}
+                                {...register(`controls.${index}.additional_mitigation`)}
                                 rows={3}
                                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                                 required
@@ -188,7 +194,7 @@ export default function RiskControls({ assessments, onSubmit, initialData }) {
                                 <label className="block text-sm font-medium text-gray-700">Risk Owner</label>
                                 <input
                                   type="text"
-                                  {...register(`controls.${index}.riskOwner`)}
+                                  {...register(`controls.${index}.risk_owner`)}
                                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                                   required
                                 />
@@ -198,7 +204,7 @@ export default function RiskControls({ assessments, onSubmit, initialData }) {
                                 <label className="block text-sm font-medium text-gray-700">Target Date</label>
                                 <input
                                   type="date"
-                                  {...register(`controls.${index}.targetDate`)}
+                                  {...register(`controls.${index}.target_date`)}
                                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                                   required
                                 />
@@ -227,30 +233,3 @@ export default function RiskControls({ assessments, onSubmit, initialData }) {
     </div>
   );
 }
-
-RiskControls.propTypes = {
-  assessments: PropTypes.arrayOf(PropTypes.shape({
-    uniqueId: PropTypes.string.isRequired,
-    event: PropTypes.string.isRequired,
-    hazard: PropTypes.string.isRequired,
-    consequence: PropTypes.string.isRequired,
-    consequenceId: PropTypes.string.isRequired,
-    currentControls: PropTypes.string.isRequired,
-    // ICAO matrix props
-    probability: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
-    severity: PropTypes.string,
-    tolerability: PropTypes.string,
-    // Integrated matrix props
-    likelihood: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
-    impact: PropTypes.oneOfType([PropTypes.number, PropTypes.string])
-  })).isRequired,
-  onSubmit: PropTypes.func.isRequired,
-  initialData: PropTypes.arrayOf(PropTypes.shape({
-    consequence: PropTypes.string.isRequired,
-    consequenceId: PropTypes.string.isRequired,
-    additionalMitigation: PropTypes.string,
-    riskOwner: PropTypes.string,
-    targetDate: PropTypes.string,
-    dateImplemented: PropTypes.string
-  }))
-};
