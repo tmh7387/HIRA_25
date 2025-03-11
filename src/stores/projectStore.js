@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { supabase } from '../services/supabase';
 import { projectService } from '../services/projectService';
 import { controlService } from '../services/controlService';
-import { updateHazards, getHazardsByEventId } from '../services/hazardService';
+import { updateHazards, getHazardsByEventId, saveHazardIdentification } from '../services/hazardService';
 
 // Custom error class for project operations
 class ProjectOperationError extends Error {
@@ -60,8 +60,14 @@ const useProjectStore = create((set, get) => ({
         return store.riskAssessmentData;
       case 4:
         return store.riskControlsData;
-      default:
-        return null;
+      case 5:
+        // Only allow access to summary if risk controls are complete
+        return store.riskControlsData ? {
+          projectDetails: store.projectDetails,
+          hazardIdentificationData: store.hazardIdentificationData,
+          riskAssessmentData: store.riskAssessmentData,
+          riskControlsData: store.riskControlsData
+        } : null;
     }
   },
 
@@ -91,21 +97,24 @@ const useProjectStore = create((set, get) => ({
         }
       });
 
-      // Load all available step data
-      const stepData = await Promise.all([
-        store.loadStepData(2), // Hazard Identification
-        store.loadStepData(3), // Risk Assessment
-        store.loadStepData(4)  // Risk Controls
-      ]);
+      // Only load all data when first opening project
+      if (!store.currentProject) {
+        // Load all available step data
+        const stepData = await Promise.all([
+          store.loadStepData(2), // Hazard Identification
+          store.loadStepData(3), // Risk Assessment
+          store.loadStepData(4)  // Risk Controls
+        ]);
 
-      // Determine the furthest completed step
-      let lastCompletedStep = 1; // Project details is step 1
-      stepData.forEach((exists, index) => {
-        if (exists) lastCompletedStep = index + 2;
-      });
+        // Determine the furthest completed step
+        let lastCompletedStep = 1; // Project details is step 1
+        stepData.forEach((exists, index) => {
+          if (exists) lastCompletedStep = index + 2;
+        });
 
-      // Set the current step to the next incomplete step
-      set({ currentStep: Math.min(lastCompletedStep + 1, 4) });
+        // Set the current step to the next incomplete step
+        set({ currentStep: Math.min(lastCompletedStep + 1, 4) });
+      }
 
     } catch (error) {
       console.error('Error setting current project:', error);
@@ -116,7 +125,7 @@ const useProjectStore = create((set, get) => ({
   },
 
   // Navigation
-  setCurrentStep: (step) => {
+  setCurrentStep: async (step) => {
     const store = get();
     
     // Always allow navigation to step 0 (dashboard) or 1 (project details)
@@ -132,8 +141,19 @@ const useProjectStore = create((set, get) => ({
       return false;
     }
 
-    set({ currentStep: step, error: null });
-    return true;
+    try {
+      // Only load next step's data if needed
+      if (step > 1 && !store.getStepData(step)) {
+        await store.loadStepData(step);
+      }
+
+      set({ currentStep: step, error: null });
+      return true;
+    } catch (error) {
+      console.error(`Error loading step ${step}:`, error);
+      store.setError(`Failed to load step ${step}: ${error.message}`);
+      return false;
+    }
   },
 
   // Project Operations with Retry Logic
@@ -181,10 +201,18 @@ const useProjectStore = create((set, get) => ({
 
       if (error) throw new ProjectOperationError('Failed to create project', 'CREATE', error);
 
-      set(state => ({
+     set(state => ({
         projects: [data, ...state.projects],
         currentProject: data,
-        projectDetails: data,
+         projectDetails: {
+          project_id: data.project_id,
+          title: data.title,
+          date: data.date,
+          facilitator: data.facilitator,
+          attendees: data.attendees || [],
+          operational_desc: data.operational_desc || '',
+          operational_files: Array.isArray(data.operational_files) ? data.operational_files : []
+        },
         currentStep: 2 // Automatically advance to Hazard Identification
       }));
 
@@ -213,11 +241,20 @@ const useProjectStore = create((set, get) => ({
 
       if (error) throw new ProjectOperationError('Failed to update project', 'UPDATE', error);
 
-      set(state => ({
+        set(state => ({
         projects: state.projects.map(p => p.id === id ? data : p),
         currentProject: data,
-        projectDetails: data
+         projectDetails: {
+          project_id: data.project_id,
+          title: data.title,
+          date: data.date,
+          facilitator: data.facilitator,
+          attendees: data.attendees || [],
+          operational_desc: data.operational_desc || '',
+          operational_files: Array.isArray(data.operational_files) ? data.operational_files : []
+        },
       }));
+
 
       return data;
     } catch (error) {
@@ -273,33 +310,22 @@ const useProjectStore = create((set, get) => ({
           set({ projectDetails: data });
           break;
         case 2:
-          set({ hazardIdentificationData: data });
-          // Save to relational tables using project_id
-          if (store.currentProject?.project_id) {
-            console.log('Saving events and hazards:', data);
-            
-            // Save each event and its hazards
-            for (const event of data.events) {
-              // First save or update the event
-              const { data: savedEvent, error: eventError } = await supabase
-                .from('hira_events')
-                .upsert({
-                  id: event.uniqueId,
-                  project_id: store.currentProject.project_id,
-                  name: event.name,
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString()
-                })
-                .select()
-                .single();
-
-              if (eventError) throw eventError;
-
-              // Then update hazards for this event
-              await updateHazards(savedEvent.id, event.hazards);
+          try {
+            // Save to database first if we have a project
+            if (store.currentProject?.project_id) {
+              const savedData = await saveHazardIdentification(
+                store.currentProject.project_id,
+                data.events
+              );
+              // Update state with the saved data that includes all IDs
+              set({ hazardIdentificationData: savedData });
+            } else {
+              // If no project, just update local state
+              set({ hazardIdentificationData: data });
             }
-          } else {
-            throw new Error('Project ID not found');
+          } catch (error) {
+            console.error('Error saving hazard identification:', error);
+            throw error;
           }
           break;
         case 3:
@@ -309,16 +335,21 @@ const useProjectStore = create((set, get) => ({
           set({ riskControlsData: data });
           // Save risk controls using assessment_id
           if (data.controls && data.controls.length > 0) {
-            console.log('Saving risk controls for assessments');
+            console.log('Updating risk controls');
             for (const control of data.controls) {
-              if (control.id) {
-                await controlService.updateRiskControl(control.id, control);
-              } else {
-                await controlService.createRiskControl(control.assessment_id, control);
+              try {
+                const existingControl = await controlService.getRiskControlByAssessmentId(control.assessment_id);
+                if (existingControl) {
+                  await controlService.updateRiskControl(existingControl.id, control);
+                }
+              } catch (error) {
+                console.error(`Error updating control for assessment ${control.assessment_id}:`, error);
+                throw error;
               }
             }
           }
           break;
+  
         default:
           throw new Error(`Invalid step: ${step}`);
       }
@@ -355,11 +386,32 @@ const useProjectStore = create((set, get) => ({
             const eventsWithHazards = await Promise.all(events.map(async event => {
               const hazards = await getHazardsByEventId(event.id);
               return {
-                uniqueId: event.id,
+                event_id: event.id,
                 name: event.name,
-                hazards
+                hazards: hazards.map(hazard => ({
+                  hazard_id: hazard.hazard_id,
+                  description: hazard.description,
+                  consequences: hazard.consequences
+                    .filter((consequence, index, self) =>
+                      // Remove duplicates based on description
+                      index === self.findIndex(c => c.description === consequence.description)
+                    )
+                    .map(consequence => ({
+                      consequence_id: consequence.consequence_id,
+                      description: consequence.description,
+                      current_controls: consequence.current_controls
+                    }))
+                }))
               };
             }));
+
+            console.log('Events with hazards:', eventsWithHazards.map(e => ({
+              event_id: e.event_id,
+              hazards_count: e.hazards.length,
+              consequences: e.hazards.flatMap(h => h.consequences.map(c => ({
+                consequence_id: c.consequence_id
+              })))
+            })));
 
             set({ hazardIdentificationData: { events: eventsWithHazards } });
             return true;
@@ -367,57 +419,70 @@ const useProjectStore = create((set, get) => ({
           return false;
 
         case 3: // Risk Assessment
-          // Get all consequences from hazard identification data
-          const consequences = store.hazardIdentificationData?.events?.flatMap(event =>
-            event.hazards?.flatMap(hazard =>
-              hazard.consequences?.map(consequence => ({
-                consequence_id: consequence.uniqueId,
-                event: event.name,
-                hazard: hazard.description,
-                consequence: consequence.description,
-                current_controls: consequence.current_controls
-              }))
-            )
-          ) || [];
+          // Get risk assessments created in Step 2
+          const { data: assessments, error: assessmentsError } = await supabase
+            .from('hira_risk_assessments')
+            .select(`
+              id,
+              consequence_id,
+              matrix_type,
+              probability,
+              severity,
+              likelihood,
+              impact,
+              tolerability
+            `)
+            .order('created_at', { ascending: true });
 
-          if (consequences.length === 0) return false;
+          if (assessmentsError) {
+            console.error('Error loading risk assessments:', assessmentsError);
+            throw assessmentsError;
+          }
 
-          // Load assessments for each consequence
-          const { getAssessmentsByConsequenceId } = await import('../services/riskAssessmentService');
-          const assessmentPromises = consequences.map(async consequence => {
-            const assessment = await getAssessmentsByConsequenceId(consequence.consequence_id);
-            return assessment || {
-              ...consequence,
-              probability: null,
-              severity: null,
-              likelihood: null,
-              impact: null,
-              tolerability: null
-            };
-          });
+          if (assessments.length === 0) return false;
 
-          const assessments = await Promise.all(assessmentPromises);
-          set({ riskAssessmentData: { assessments } });
+          // Format assessments for the UI - no need to transform, use as-is
+          const formattedAssessments = assessments;
+
+          console.log('Loaded risk assessments:', formattedAssessments.map(a => ({
+            assessment_id: a.id,
+            consequence_id: a.consequence_id
+          })));
+
+          set({ riskAssessmentData: { assessments: formattedAssessments } });
           return true;
 
-        case 4: // Risk Controls
-          // Get assessment IDs from risk assessment data
-          const assessmentIds = store.riskAssessmentData?.assessments?.map(a => a.id) || [];
-          if (assessmentIds.length === 0) return false;
+          case 4: // Risk Controls
+          // Get risk controls created in Step 3
+          const { data: controls, error: controlsError } = await supabase
+            .from('hira_risk_controls')
+            .select(`
+              id,
+              assessment_id,
+              additional_mitigation,
+              risk_owner,
+              target_date,
+              date_implemented
+            `)
+            .order('created_at', { ascending: true });
 
-          // Load controls for each assessment
-          const controlPromises = assessmentIds.map(assessmentId => 
-            controlService.getRiskControlByAssessmentId(assessmentId)
-          );
-          const controls = await Promise.all(controlPromises);
-          
-          // Filter out null results and set data
-          const validControls = controls.filter(Boolean);
-          if (validControls.length > 0) {
-            set({ riskControlsData: { controls: validControls } });
-            return true;
+          if (controlsError) {
+            console.error('Error loading risk controls:', controlsError);
+            throw controlsError;
           }
-          return false;
+
+          if (controls.length === 0) return false;
+
+          // Format controls for the UI - no need to transform, use as-is
+          const formattedControls = controls;
+
+          console.log('Loaded risk controls:', formattedControls.map(c => ({
+            control_id: c.id,
+            assessment_id: c.assessment_id
+          })));
+
+          set({ riskControlsData: { controls: formattedControls } });
+          return true;
 
         default:
           return false;

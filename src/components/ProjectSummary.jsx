@@ -1,9 +1,16 @@
 import React from 'react';
-import PropTypes from 'prop-types';
+import useProjectStore from '../stores/projectStore';
 import { useRiskMatrixStore } from '../stores/riskMatrixStore';
 import { calculateRiskRating } from '../utils/riskCalculations';
 
-export default function ProjectSummary({ project }) {
+export default function ProjectSummary() {
+  const { 
+    currentProject,
+    projectDetails,
+    hazardIdentificationData,
+    riskAssessmentData,
+    riskControlsData 
+  } = useProjectStore();
   const { matrixType } = useRiskMatrixStore();
 
   const getRiskLevelStyle = (assessment) => {
@@ -17,13 +24,53 @@ export default function ProjectSummary({ project }) {
     } else {
       const riskRating = calculateRiskRating(assessment.likelihood, assessment.impact);
       const styles = {
-        'High': 'bg-red-100 text-red-800',
-        'Moderate': 'bg-orange-100 text-orange-800',
+        'Extreme': 'bg-red-100 text-red-800',
+        'High': 'bg-orange-100 text-orange-800',
         'Medium': 'bg-yellow-100 text-yellow-800',
         'Low': 'bg-green-100 text-green-800'
       };
       return styles[riskRating] || 'bg-gray-100';
     }
+  };
+
+  const summaryData = {
+    projectId: currentProject?.id || '',
+    title: projectDetails?.title || '',
+    date: projectDetails?.date || '',
+    facilitator: projectDetails?.facilitator || {},
+    assessments: riskAssessmentData?.assessments?.map(assessment => {
+      const eventInfo = hazardIdentificationData?.events?.find(event => 
+        event.hazards?.some(hazard => 
+          hazard.consequences?.some(cons => cons.consequence_id === assessment.consequence_id)
+        )
+      );
+
+      const hazardInfo = eventInfo?.hazards?.find(hazard => 
+        hazard.consequences?.some(cons => cons.consequence_id === assessment.consequence_id)
+      );
+
+      const consequenceInfo = hazardInfo?.consequences?.find(cons => 
+        cons.consequence_id === assessment.consequence_id
+      );
+
+      const controlInfo = riskControlsData?.controls?.find(control => 
+        control.assessment_id === assessment.id
+      );
+
+      return {
+        assessment_id: assessment.id,
+        event: eventInfo?.name || '',
+        hazard: hazardInfo?.description || '',
+        consequence: consequenceInfo?.description || '',
+        current_controls: consequenceInfo?.current_controls || '',
+        additional_mitigation: controlInfo?.additional_mitigation || '',
+        probability: assessment.probability,
+        severity: assessment.severity,
+        likelihood: assessment.likelihood,
+        impact: assessment.impact,
+        tolerability: assessment.tolerability
+      };
+    }) || []
   };
 
   return (
@@ -38,19 +85,23 @@ export default function ProjectSummary({ project }) {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-gray-600">Project Title</p>
-                <p className="font-medium">{project.title}</p>
+                <p className="font-medium">{summaryData.title}</p>
               </div>
               <div>
                 <p className="text-sm text-gray-600">Project ID</p>
-                <p className="font-medium">{project.projectId}</p>
+                <p className="font-medium">{summaryData.projectId}</p>
               </div>
               <div>
                 <p className="text-sm text-gray-600">Date</p>
-                <p className="font-medium">{project.date}</p>
+                <p className="font-medium">{summaryData.date}</p>
               </div>
               <div>
                 <p className="text-sm text-gray-600">Facilitator</p>
-                <p className="font-medium">{project.facilitator.name}</p>
+                <p className="font-medium">{summaryData.facilitator.name}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-600">Designation</p>
+                <p className="font-medium">{summaryData.facilitator.designation}</p>
               </div>
             </div>
           </section>
@@ -59,7 +110,7 @@ export default function ProjectSummary({ project }) {
           <section>
             <h3 className="text-lg font-semibold mb-4">Risk Assessments</h3>
             <div className="space-y-4">
-              {project.assessments?.map((assessment) => (
+              {summaryData.assessments.map((assessment) => (
                 <div key={assessment.assessment_id} className="border rounded-lg p-4">
                   <div className="grid grid-cols-2 gap-4 mb-4">
                     <div>
@@ -83,10 +134,10 @@ export default function ProjectSummary({ project }) {
                       <p className="text-sm text-gray-600">Consequence</p>
                       <p>{assessment.consequence}</p>
                     </div>
-                    {assessment.additionalMitigation && (
+                    {assessment.additional_mitigation && (
                       <div>
                         <p className="text-sm text-gray-600">Additional Mitigation</p>
-                        <p>{assessment.additionalMitigation}</p>
+                        <p>{assessment.additional_mitigation}</p>
                       </div>
                     )}
                   </div>
@@ -108,28 +159,3 @@ export default function ProjectSummary({ project }) {
     </div>
   );
 }
-
-ProjectSummary.propTypes = {
-  project: PropTypes.shape({
-    projectId: PropTypes.string.isRequired,
-    title: PropTypes.string.isRequired,
-    date: PropTypes.string.isRequired,
-    facilitator: PropTypes.shape({
-      name: PropTypes.string.isRequired,
-      designation: PropTypes.string.isRequired
-    }).isRequired,
-    assessments: PropTypes.arrayOf(PropTypes.shape({
-      assessment_id: PropTypes.string.isRequired,
-      event: PropTypes.string.isRequired,
-      hazard: PropTypes.string.isRequired,
-      consequence: PropTypes.string.isRequired,
-      current_controls: PropTypes.string,
-      additional_mitigation: PropTypes.string,
-      probability: PropTypes.number,
-      severity: PropTypes.string,
-      likelihood: PropTypes.number,
-      impact: PropTypes.number,
-      tolerability: PropTypes.string
-    })).isRequired
-  }).isRequired
-};

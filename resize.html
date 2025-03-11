@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Resize Image</title>
+</head>
+<body>
+    <canvas id="canvas" width="192" height="192" style="display:none;"></canvas>
+    <img id="output" style="display:none;">
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const img = new Image();
+        
+        img.onload = function() {
+            // Draw image at 192x192
+            ctx.drawImage(img, 0, 0, 192, 192);
+            
+            // Convert to PNG
+            const resized = canvas.toDataURL('image/png');
+            document.getElementById('output').src = resized;
+            
+            // Log the data URL for copying
+            console.log(resized);
+        };
+        
+        img.src = 'public/logo192.png';
+    </script>
+</body>
+</html>

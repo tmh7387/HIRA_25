@@ -1,185 +1,43 @@
 import { supabase } from './supabase';
-
-async function findConsequence(consequence_id) {
-  const { data, error } = await supabase
-    .from('hira_consequences')
-    .select(`
-      id,
-      description,
-      current_controls,
-      hazard:hira_hazards!inner(
-        id,
-        description,
-        event:hira_events!inner(
-          id,
-          name
-        )
-      )
-    `)
-    .eq('id', consequence_id)
-    .single();
-
-  if (error) {
-    console.error('Error finding consequence:', error);
-    console.error('Attempted to find consequence with ID:', consequence_id);
-    throw new Error(`Consequence not found: ${consequence_id}`);
+import { calculateRiskRating } from '../utils/riskCalculations';
+/**
+ * Get an assessment by consequence_id.
+ */
+export async function getAssessmentsByConsequenceId(consequence_id) {
+  if (!consequence_id) {
+    console.error('getAssessmentsByConsequenceId called without consequence_id');
+    return null;
   }
-
-  if (!data) {
-    console.error('No consequence found with ID:', consequence_id);
-    throw new Error(`No consequence found with ID: ${consequence_id}`);
-  }
-
-  return data;
-}
-
-async function createOrUpdateAssessment(assessment, matrix_type) {
-  // First verify the consequence exists
-  const consequence = await findConsequence(assessment.consequence_id);
-
-  // Check if an assessment already exists for this consequence
-  const { data: existingAssessment, error: fetchError } = await supabase
-    .from('hira_risk_assessments')
-    .select('*')
-    .eq('consequence_id', consequence.id)
-    .single();
-
-  if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116 is "not found" error
-    throw fetchError;
-  }
-
-  const assessmentData = {
-    consequence_id: consequence.id,
-    matrix_type: matrix_type.toLowerCase(),
-    probability: assessment.probability ? parseInt(assessment.probability) : null,
-    severity: assessment.severity || null,
-    likelihood: assessment.likelihood ? parseInt(assessment.likelihood) : null,
-    impact: assessment.impact ? parseInt(assessment.impact) : null,
-    tolerability: assessment.tolerability || null
-  };
-
-  let result;
-  if (existingAssessment) {
-    // Update existing assessment
-    const { data, error } = await supabase
-      .from('hira_risk_assessments')
-      .update(assessmentData)
-      .eq('id', existingAssessment.id)
-      .select()
-      .single();
-
-    if (error) throw error;
-    result = data;
-  } else {
-    // Create new assessment
-    const { data, error } = await supabase
-      .from('hira_risk_assessments')
-      .insert(assessmentData)
-      .select()
-      .single();
-
-    if (error) throw error;
-    result = data;
-  }
-
-  return {
-    assessment_id: result.id,
-    consequence_id: consequence.id,
-    event: consequence.hazard.event.name,
-    hazard: consequence.hazard.description,
-    consequence: consequence.description,
-    current_controls: consequence.current_controls,
-    matrix_type: result.matrix_type,
-    probability: result.probability,
-    severity: result.severity,
-    likelihood: result.likelihood,
-    impact: result.impact,
-    tolerability: result.tolerability
-  };
-}
-
-export async function createAssessments(project_id, assessmentsData, matrix_type) {
-  console.log('Creating assessments for project:', project_id);
-  console.log('Assessments data:', assessmentsData);
-  
-  
-  const assessmentPromises = assessmentsData.assessments.map(async assessment => {
-    try {
-      // Verify the consequence exists in hira_consequences
-      const { data: consequence, error: consequenceError } = await supabase
-        .from('hira_consequences')
-        .select(`
-          id,
-          description,
-          current_controls,
-          hazard:hira_hazards!inner(
-            id,
-            description,
-            event:hira_events!inner(
-              id,
-              name
-            )
-          )
-        `)
-        .eq('id', assessment.consequence_id) // Use consequence_id from hazard identification
-        .single();
-
-      if (consequenceError) {
-        console.error('Error finding consequence:', consequenceError);
-        throw new Error(`Consequence not found: ${assessment.consequence_id}`);
-      }
-
-      if (!consequence) {
-        throw new Error(`No consequence found with ID: ${assessment.consequence_id}`);
-      }
-
-      console.log('Found consequence:', consequence);
-
-      // Create the risk assessment
-      const { data: createdAssessment, error: assessmentError } = await supabase
-        .from('hira_risk_assessments')
-        .insert({
-          consequence_id: consequence.id,
-          matrix_type: matrix_type,
-          probability: assessment.probability ? parseInt(assessment.probability) : null,
-          severity: assessment.severity || null,
-          likelihood: assessment.likelihood ? parseInt(assessment.likelihood) : null,
-          impact: assessment.impact ? parseInt(assessment.impact) : null,
-          tolerability: assessment.tolerability || null
-        })
-        .select()
-        .single();
-
-      if (assessmentError) {
-        console.error('Error creating assessment:', assessmentError);
-        throw assessmentError;
-      }
-
-      console.log('Created assessment:', createdAssessment);
-
-      return {
-        assessment_id: createdAssessment.id,
-        consequence_id: consequence.id, // Return consequence ID for form matching
-        event: consequence.hazard.event.name,
-        hazard: consequence.hazard.description,
-        consequence: consequence.description,
-        current_controls: consequence.current_controls,
-        matrix_type: createdAssessment.matrix_type,
-        probability: createdAssessment.probability,
-        severity: createdAssessment.severity,
-        likelihood: createdAssessment.likelihood,
-        impact: createdAssessment.impact,
-        tolerability: createdAssessment.tolerability
-      };
-    } catch (error) {
-      console.error('Error processing assessment:', error);
-      throw error;
-    }
-  });
 
   try {
-    const results = await Promise.all(assessmentPromises);
-    console.log('Successfully created all assessments:', results);
+    const { data: assessment, error } = await supabase
+      .from('hira_risk_assessments')
+      .select()
+      .eq('consequence_id', consequence_id)
+      .single();
+
+    if (error) {
+      console.error('Error getting assessment:', error);
+      throw error;
+    }
+
+    return assessment;
+  } catch (error) {
+    console.error('Error in getAssessmentsByConsequenceId:', error);
+    throw error;
+  }
+}
+
+/**
+ * Create multiple risk assessments.
+ */
+export async function createAssessments(project_id, assessmentsData, matrix_type) {
+  try {
+    const updatePromises = assessmentsData.assessments.map(assessment => 
+      createOrUpdateAssessment(assessment, matrix_type)
+    );
+
+    const results = await Promise.all(updatePromises);
     return { assessments: results };
   } catch (error) {
     console.error('Error creating assessments:', error);
@@ -187,93 +45,91 @@ export async function createAssessments(project_id, assessmentsData, matrix_type
   }
 }
 
+/**
+ * Update multiple risk assessments.
+ */
 export async function updateAssessments(assessmentsData, matrix_type) {
   try {
-    console.log('Updating assessments:', assessmentsData);
-
-    // Process each assessment
-    const results = [];
-    for (const assessment of assessmentsData.assessments) {
-      // Check if assessment exists for this consequence
-      const { data: existingAssessment, error: fetchError } = await supabase
+    const updatePromises = assessmentsData.assessments.map(async assessment => {
+      // Find existing assessment
+      const { data: existingAssessment, error: findError } = await supabase
         .from('hira_risk_assessments')
-        .select('id')
+        .select(`
+          id, 
+          consequence_id,
+          matrix_type,
+          probability,
+          severity,
+          likelihood,
+          impact,
+          tolerability
+        `)
         .eq('consequence_id', assessment.consequence_id)
         .single();
 
-      if (fetchError && fetchError.code !== 'PGRST116') throw fetchError;
+      if (findError) throw findError;
 
-      const assessmentData = {
-        consequence_id: assessment.consequence_id,
-        matrix_type: matrix_type.toLowerCase(),
-        probability: assessment.probability ? parseInt(assessment.probability) : null,
-        severity: assessment.severity || null,
-        likelihood: assessment.likelihood ? parseInt(assessment.likelihood) : null,
-        impact: assessment.impact ? parseInt(assessment.impact) : null,
-        tolerability: assessment.tolerability || null
-      };
-
-      let result;
-      if (existingAssessment) {
-        // Update existing assessment
-        const { data, error } = await supabase
-          .from('hira_risk_assessments')
-          .update(assessmentData)
-          .eq('id', existingAssessment.id)
-          .select()
-          .single();
-
-        if (error) throw error;
-        result = data;
-      } else {
-        // Create new assessment
-        const { data, error } = await supabase
-          .from('hira_risk_assessments')
-          .insert(assessmentData)
-          .select()
-          .single();
-
-        if (error) throw error;
-        result = data;
-      }
-
-      // Get consequence details
-      const { data: consequence, error: consequenceError } = await supabase
-        .from('hira_consequences')
+      // Update assessment
+      const { data: result, error: updateError } = await supabase
+        .from('hira_risk_assessments')
+        .update({
+          matrix_type: matrix_type.toLowerCase(),
+          probability: assessment.probability,
+          severity: assessment.severity,
+          likelihood: assessment.likelihood,
+          impact: assessment.impact,
+          tolerability: matrix_type === 'ICAO' ? assessment.tolerability : calculateRiskRating(assessment.likelihood, assessment.impact),
+          updated_at: new Date().toISOString()
+        })
+         .eq('id', existingAssessment.id)
         .select(`
           id,
-          description,
-          current_controls,
-          hazard:hira_hazards!inner(
-            id,
-            description,
-            event:hira_events!inner(
-              id,
-              name
-            )
-          )
+          consequence_id,
+          matrix_type,
+          probability,
+          severity,
+          likelihood,
+          impact,
+          tolerability
         `)
-        .eq('id', assessment.consequence_id)
         .single();
 
-      if (consequenceError) throw consequenceError;
+      if (updateError) throw updateError;
 
-      results.push({
-        assessment_id: result.id,
-        consequence_id: consequence.id,
-        event: consequence.hazard.event.name,
-        hazard: consequence.hazard.description,
-        consequence: consequence.description,
-        current_controls: consequence.current_controls,
-        matrix_type: result.matrix_type,
-        probability: result.probability,
-        severity: result.severity,
-        likelihood: result.likelihood,
-        impact: result.impact,
-        tolerability: result.tolerability
-      });
-    }
 
+      // Create risk control record if it doesn't exist
+      const { data: existingControl } = await supabase
+        .from('hira_risk_controls')
+        .select(`
+          id,
+          assessment_id
+        `)
+        .eq('assessment_id', result.id)
+        .maybeSingle();
+
+      if (!existingControl) {
+        const { error: createError } = await supabase
+          .from('hira_risk_controls')
+          .insert({
+            assessment_id: result.id,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .select(`
+            id,
+            assessment_id,
+            created_at,
+            updated_at
+          `)
+          .single();
+
+        if (createError) throw createError;
+      }
+
+      return result;
+    });
+
+    const results = await Promise.all(updatePromises);
     return { assessments: results };
   } catch (error) {
     console.error('Error updating assessments:', error);
@@ -281,57 +137,104 @@ export async function updateAssessments(assessmentsData, matrix_type) {
   }
 }
 
-export async function getAssessmentsByConsequenceId(consequence_id) {
+/**
+ * Create or update a single assessment
+ */
+async function createOrUpdateAssessment(assessment, matrix_type) {
   try {
-    console.log('Getting assessment for consequence:', consequence_id);
-
-    const { data, error } = await supabase
+    // Find the existing assessment by consequence_id
+    const { data: existingAssessment, error: findError } = await supabase
       .from('hira_risk_assessments')
-      .select('*')
-      .eq('consequence_id', consequence_id)
-      .single();
-
-    if (error && error.code !== 'PGRST116') throw error; // PGRST116 is "not found" error
-
-    if (!data) return null;
-
-    // Get the consequence details
-    const { data: consequence, error: consequenceError } = await supabase
-      .from('hira_consequences')
       .select(`
         id,
-        description,
-        current_controls,
-        hazard:hira_hazards!inner(
-          id,
-          description,
-          event:hira_events!inner(
-            id,
-            name
-          )
-        )
+        consequence_id
       `)
-      .eq('id', consequence_id)
+      .eq('consequence_id', assessment.consequence_id)
       .single();
 
-    if (consequenceError) throw consequenceError;
+    if (findError) {
+      console.error('Error finding assessment:', findError);
+      throw findError;
+    }
 
-    return {
-      assessment_id: data.id,
-      consequence_id: consequence.id,
-      event: consequence.hazard.event.name,
-      hazard: consequence.hazard.description,
-      consequence: consequence.description,
-      current_controls: consequence.current_controls,
-      matrix_type: data.matrix_type,
-      probability: data.probability,
-      severity: data.severity,
-      likelihood: data.likelihood,
-      impact: data.impact,
-      tolerability: data.tolerability
-    };
+    if (!existingAssessment) {
+      throw new Error(`No risk assessment found for consequence: ${assessment.consequence_id}`);
+    }
+
+    // Update the assessment with new data
+     const { data: result, error: updateError } = await supabase
+      .from('hira_risk_assessments')
+      .update({
+        matrix_type: matrix_type.toLowerCase(),
+        probability: assessment.probability ? parseInt(assessment.probability) : null,
+        severity: assessment.severity || null,
+        likelihood: assessment.likelihood ? parseInt(assessment.likelihood) : null,
+        impact: assessment.impact ? parseInt(assessment.impact) : null,
+        tolerability: matrix_type === 'ICAO' ? assessment.tolerability : calculateRiskRating(assessment.likelihood, assessment.impact),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', existingAssessment.id)
+      .select(`
+        id,
+        consequence_id,
+        matrix_type,
+        probability,
+        severity,
+        likelihood,
+        impact,
+        tolerability
+      `)
+      .single();
+
+    if (updateError) {
+      console.error('Error updating assessment:', updateError);
+      throw updateError;
+    }
+
+    // After successfully updating the risk assessment, ensure risk control record exists
+    if (result) {
+      // Check if a risk control record already exists
+      const { data: existingControl, error: controlFindError } = await supabase
+        .from('hira_risk_controls')
+        .select(`
+          id,
+          assessment_id
+        `)
+        .eq('assessment_id', result.id)
+        .maybeSingle();
+
+      if (controlFindError && controlFindError.code !== 'PGRST116') {
+        console.error('Error checking existing control:', controlFindError);
+        throw controlFindError;
+      }
+
+      // Create empty risk control record if it doesn't exist
+      if (!existingControl) {
+        const { error: controlCreateError } = await supabase
+          .from('hira_risk_controls')
+          .insert({
+            assessment_id: result.id,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .select(`
+            id,
+            assessment_id,
+            created_at,
+            updated_at
+          `)
+          .single();
+
+        if (controlCreateError) {
+          console.error('Error creating risk control:', controlCreateError);
+          throw controlCreateError;
+        }
+      }
+    }
+
+    return result;
   } catch (error) {
-    console.error('Error getting assessment:', error);
+    console.error('Error in createOrUpdateAssessment:', error);
     throw error;
   }
 }

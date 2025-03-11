@@ -1,17 +1,13 @@
 import { RISK_MATRIX } from '../constants/icaoMatrix';
+import { calculateRiskLevel } from '../constants/integratedMatrix';
 
 export function calculateICAORiskTolerability(probability, severity) {
   const riskIndex = `${probability}${severity}`;
   return RISK_MATRIX[riskIndex] || 'ACCEPTABLE';
 }
 
-export function calculateRiskRating(probability, severity) {
-  const riskValue = probability * severity;
-  
-  if (riskValue <= 4) return 'Low';
-  if (riskValue <= 9) return 'Medium';
-  if (riskValue <= 14) return 'High';
-  return 'Extreme';
+export function calculateRiskRating(likelihood, impact) {
+  return calculateRiskLevel(likelihood, impact);
 }
 
 export function calculateHighestRisk(assessments, matrixType) {
@@ -26,46 +22,31 @@ export function calculateHighestRisk(assessments, matrixType) {
     'TOLERABLE': 3,
     'ACCEPTABLE': 2,
     // Integrated risk levels
-    'EXTREME': 4,
-    'HIGH': 3,
-    'MEDIUM': 2,
-    'LOW': 1
+    'EXTREME RISK': 4,
+    'HIGH RISK': 3,
+    'MEDIUM RISK': 2,
+    'LOW RISK': 1
   };
 
-  let highestRisk = 'LOW';
+  let highestRisk = 'LOW RISK';
   let highestRiskLevel = 1;
 
-  for (const assessment of assessments) {
-    let currentRisk;
-    if (matrixType === 'ICAO') {
-      currentRisk = calculateICAORiskTolerability(assessment.probability, assessment.severity);
-    } else {
-      currentRisk = calculateRiskRating(assessment.likelihood, assessment.impact).toUpperCase();
-    }
+    for (const assessment of assessments) {
+      let currentRisk;
 
-    const currentRiskLevel = riskLevels[currentRisk] || 1;
-    if (currentRiskLevel > highestRiskLevel) {
-      highestRiskLevel = currentRiskLevel;
-      // Map the risk level back to the appropriate display value
       if (matrixType === 'ICAO') {
-        highestRisk = currentRisk;
+         currentRisk = calculateICAORiskTolerability(assessment.probability, assessment.severity);
       } else {
-        switch (currentRiskLevel) {
-          case 4:
-            highestRisk = 'EXTREME';
-            break;
-          case 3:
-            highestRisk = 'HIGH';
-            break;
-          case 2:
-            highestRisk = 'MEDIUM';
-            break;
-          default:
-            highestRisk = 'LOW';
-        }
+          currentRisk = calculateRiskRating(assessment.likelihood, assessment.impact).toUpperCase();
+         }
+
+        const currentRiskLevel = riskLevels[currentRisk] || 1;
+        if (currentRiskLevel > highestRiskLevel) {
+          highestRiskLevel = currentRiskLevel;
+        // Map the risk level back to the appropriate display value
+          highestRisk = currentRisk;
       }
     }
-  }
 
   return highestRisk;
 }

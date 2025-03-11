@@ -117,11 +117,11 @@ export default function FloatingMatrix() {
           </div>
           <div className="flex items-center">
             <div className="w-4 h-4 bg-orange-200 mr-1"></div>
-            <span>Moderate Risk (15-19)</span>
+            <span>High Risk (15-19)</span>
           </div>
           <div className="flex items-center">
             <div className="w-4 h-4 bg-red-200 mr-1"></div>
-            <span>High Risk (20-25)</span>
+            <span>Extreme Risk (20-25)</span>
           </div>
         </div>
       </div>

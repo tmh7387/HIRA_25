@@ -75,8 +75,8 @@ function ProjectCard({ project, onEdit, onView, onDelete, isLoading }) {
           highestRisk === 'TOLERABLE' ? 'bg-yellow-100 text-yellow-800' :
           highestRisk === 'ACCEPTABLE' ? 'bg-green-100 text-green-800' :
           // Integrated Risk Levels
-          highestRisk === 'HIGH' ? 'bg-red-100 text-red-800' :
-          highestRisk === 'MODERATE' ? 'bg-orange-100 text-orange-800' :
+          highestRisk === 'Extreme' ? 'bg-red-100 text-red-800' :
+          highestRisk === 'High' ? 'bg-orange-100 text-orange-800' :
           highestRisk === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800' :
           'bg-green-100 text-green-800' // LOW
         }`}>

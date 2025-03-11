@@ -1,6 +1,6 @@
 import React from 'react';
 import PropTypes from 'prop-types';
-import { LIKELIHOOD_VALUES, IMPACT_VALUES, RISK_LEVELS, calculateRiskLevel } from '../constants/integratedMatrix';
+import { LIKELIHOOD_VALUES, IMPACT_VALUES, RISK_LEVELS, calculateRiskLevel, RISK_LEVEL_COLORS } from '../constants/integratedMatrix';
 
 export default function IntegratedRiskMatrix({ likelihood = '', impact = '', onChange, showRiskLevel = false }) {
   const handleLikelihoodChange = (event) => {
@@ -77,27 +77,19 @@ export default function IntegratedRiskMatrix({ likelihood = '', impact = '', onC
       </div>
 
       {showRiskLevel && riskLevel && (
-        <div className={`rounded-lg border p-4 ${getRiskLevelStyle(riskLevel)}`}>
+        <div className="rounded-lg border border-gray-200 p-4 bg-gray-50">
           <div className="mb-2">
-            <span className="font-medium">{RISK_LEVELS[riskLevel].label}</span>
+            <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${RISK_LEVEL_COLORS[riskLevel]}`}>
+              {RISK_LEVELS[riskLevel].label}
+            </span>
           </div>
-          <p className="text-sm">
+          <p className="text-sm text-gray-700">
             {RISK_LEVELS[riskLevel].description}
           </p>
         </div>
       )}
     </div>
   );
-}
-
-function getRiskLevelStyle(level) {
-  const styles = {
-    RED: 'bg-red-50 border-red-200 text-red-700',
-    AMBER: 'bg-orange-50 border-orange-200 text-orange-700',
-    YELLOW: 'bg-yellow-50 border-yellow-200 text-yellow-700',
-    GREEN: 'bg-green-50 border-green-200 text-green-700'
-  };
-  return styles[level] || styles.GREEN;
 }
 
 IntegratedRiskMatrix.propTypes = {

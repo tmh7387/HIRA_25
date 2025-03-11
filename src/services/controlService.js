@@ -1,30 +1,6 @@
 import { supabase } from './supabase';
 
 export const controlService = {
-  async createRiskControl(assessment_id, controlData) {
-    try {
-      const { data, error } = await supabase
-        .from('hira_risk_controls')
-        .insert({
-          assessment_id: assessment_id,
-          additional_mitigation: controlData.additional_mitigation,
-          risk_owner: controlData.risk_owner,
-          target_date: controlData.target_date,
-          date_implemented: controlData.date_implemented,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error('Error creating risk control:', error);
-      throw error;
-    }
-  },
-
   async updateRiskControl(controlId, controlData) {
     try {
       const { data, error } = await supabase
@@ -32,12 +8,20 @@ export const controlService = {
         .update({
           additional_mitigation: controlData.additional_mitigation,
           risk_owner: controlData.risk_owner,
-          target_date: controlData.target_date,
-          date_implemented: controlData.date_implemented,
+          target_date: controlData.target_date || null,
+          date_implemented: controlData.date_implemented || null,
           updated_at: new Date().toISOString()
         })
         .eq('id', controlId)
-        .select()
+        .select(`
+          id,
+          assessment_id,
+          additional_mitigation,
+          risk_owner,
+          target_date,
+          date_implemented,
+          updated_at
+        `)
         .single();
 
       if (error) throw error;
@@ -61,29 +45,12 @@ export const controlService = {
           date_implemented
         `)
         .eq('assessment_id', assessment_id)
-        .single();
+        .single(); // Using single() since we know the record exists
 
-      if (error && error.code !== 'PGRST116') { // Ignore "not found" error
-        throw error;
-      }
-
+      if (error) throw error;
       return data;
     } catch (error) {
       console.error('Error getting risk control:', error);
-      throw error;
-    }
-  },
-
-  async deleteRiskControl(controlId) {
-    try {
-      const { error } = await supabase
-        .from('hira_risk_controls')
-        .delete()
-        .eq('id', controlId);
-
-      if (error) throw error;
-    } catch (error) {
-      console.error('Error deleting risk control:', error);
       throw error;
     }
   }
